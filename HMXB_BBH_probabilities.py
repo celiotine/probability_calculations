@@ -87,20 +87,10 @@ dtp = 0.01
 timestep_conditions = [['kstar_1<13', 'kstar_2=14', 'dtp=0.01'], ['kstar_1=14', 'kstar_2<13', 'dtp=0.01']]
 
 ## initialize all counting variables (for probabilities) to zero
-BBH_count = 0
-BBHm_count = 0
-BBHm_obs_count = 0
-
-HMXB_count = 0
-HMXB_obs_count = 0
-
-HMXB_BBHm = 0
-HMXB_obs_BBHm = 0
-
-HMXB_BBH = 0
-HMXB_obs_BBH = 0
-
-HMXB_obs_BBHm_obs = 0
+BBH_count = 0; BBHm_count = 0; BBHm_obs_count = 0
+HMXB_count = 0; HMXB_obs_count = 0
+HMXB_BBHm = 0; HMXB_obs_BBHm = 0
+HMXB_BBH = 0; HMXB_obs_BBH = 0; HMXB_obs_BBHm_obs = 0
 
 sample_size = 0
 
