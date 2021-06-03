@@ -26,7 +26,6 @@ def P_omega(omega_values):
  
 #----------------------------------------------------------------------------------                                                                  
 ### Monte Carlo sampling for detections above the given SNR threshold                                                          \
-                                                                                                                                
 def calc_detection_prob(m1, m2, z_merge):
 
     ## constants that reflect LIGO design sensitivity                                                                           
@@ -43,10 +42,7 @@ def calc_detection_prob(m1, m2, z_merge):
     rho_0 = 8*(M_chirp*(1+z_merge)/M_8)**(5./6)*d_L8/d_L   ## this is the "typical/optimal" SNR                                 
     if (rho_0 < SNR_thresh): return 0
 
-
-    ## sample omega according to distribution for omega                                                                         
-    ## sample omega according to distribution for omega via inverse CDF method                                                 \
-                                                                                                                                
+    ## sample omega according to distribution for omega via inverse CDF method                                            
     dist_size = 10000
     sample_size = 1000
     P_omega_dist = P_omega(np.linspace(0, 1, dist_size))
@@ -62,7 +58,7 @@ def calc_detection_prob(m1, m2, z_merge):
     return p_det
 
 #-----------------------------------------------------------------------------------# 
-
+## calculate XRB flux time series information
 def calc_flux(current_BH_mass, initial_BH_mass, mdot_BH, d_L):
 
     bolometric_correction = 0.8
@@ -83,16 +79,14 @@ columns=['bin_num', 'metallicity', 'merger_type', 'bin_state', 'delay_time', 'lo
 df_all = pd.DataFrame(columns=columns)
 
 sampled_pop = pd.read_csv(sys.argv[1])  ## file of sampled population; file is structured like bpp array, csv format
-sampled_initC = pd.read_csv(sys.argv[2])
-
-#COSMIC_runs = sys.argv[3]  ## path to directory of COSMIC runs for all metallicities; need this for small-dtp tracks for XRBs
-#sampled_pop = pd.read_csv(population_file)
+sampled_initC = pd.read_csv(sys.argv[2])  ## file of sampled population initial conditions; file is structured like initCond file, csv format 
 
 binary_IDs = np.unique(sampled_pop['bin_num'].values)
 
 dtp = 0.01
 timestep_conditions = [['kstar_1<13', 'kstar_2=14', 'dtp=0.01'], ['kstar_1=14', 'kstar_2<13', 'dtp=0.01']]
 
+## initialize all counting variables (for probabilities) to zero
 BBH_count = 0
 BBHm_count = 0
 BBHm_obs_count = 0
@@ -109,8 +103,10 @@ HMXB_obs_BBH = 0
 HMXB_obs_BBHm_obs = 0
 
 sample_size = 0
+
 #----------------------------------------------------------------------------------
 
+## loop through all binaries in the sample population, calculate XRB and DCO properties
 for binary in binary_IDs:
     
     bpps = sampled_pop.loc[np.where(sampled_pop['bin_num'] == binary)]
@@ -129,37 +125,13 @@ for binary in binary_IDs:
         this_BBHm = False
         this_BBH = False
 
-        ## dumb string formatting shit
-        #format_met_string = "{:.8f}".format(met)
-        #met = float(format_met_string)
-
+        ## get the COSMIC information for this binary
         sample_bpp = bpps.iloc[np.where(bpps['metallicity'] == bpp_met)[0]]
-
-        #loc_initCs = np.where(initCs['metallicity'] == initC_met)[0]
-        #if (len(loc_initCs) > 1): np.where(initCs['metallicity'] == initC_met)[0][0]
-        #print (num_initCs)
-
         sample_initC = initCs.iloc[np.where(initCs['metallicity'] == initC_met)[0]]
-        if (sample_initC.shape[0] > 1):
-            sample_initC = sample_initC.iloc[:-1]
-            #print (sample_initC)
+        if (sample_initC.shape[0] > 1): sample_initC = sample_initC.iloc[:-1]
 
-        #if (sample_initC.shape[0] > 1): 
-        #    sample_initC = sample_initC.iloc[0]
-        #    print (initCs)
-        #    print (sample_initC)
-
-        #print (met)
-        #print (sample_initC)
-        #print (sample_bpp)
-
+        ## re-evolve this binary to get small-timestep XRB info
         bpp, bcm, initC, kick_info = Evolve.evolve(initialbinarytable=sample_initC, timestep_conditions=timestep_conditions)
-        #try: bcm = pd.read_csv(COSMIC_runs + format_met_string + "/evolved_tracks/" + str(binary) + "_bcm.csv")
-        #except: continue
-        #bpp = pd.read_csv(COSMIC_runs + format_met_string + "/evolved_tracks/" + str(binary) + "_bpp.csv")
-        
-        #print (bpp)
-        #print (bcm)
 
         merger_type = int(bcm['merger_type'].iloc[-1])
         bin_state = bcm['bin_state'].iloc[-1]
@@ -230,8 +202,6 @@ for binary in binary_IDs:
             remnant_mass_k2 = bpp['mass_2'].iloc[-1]
             p_det = 0
         #----------------------------------------------------------------------------------
-    
-        #print (bpp)
 
         ## CASE A: system doesn't undergo an HMXB phae                                            
         ## if so, there are only 2 rows in bcm frame                      
@@ -247,10 +217,6 @@ for binary in binary_IDs:
 
         ### CASE B: system undeoges an HMXB phase                                      
         else:
-        
-            #print (bpp)
-            #print (bcm)
-
             ## get bcm index where each BH is formed                                   
             try: BH1_index = np.where(bcm['kstar_1'] == 14)[0][0]
             except: BH1_index = np.infty
@@ -258,7 +224,7 @@ for binary in binary_IDs:
             try: BH2_index = np.where(bcm['kstar_2'] == 14)[0][0]
             except: BH2_index = np.infty
 
-            #XRB_index = 1
+
             ## CASE Bi: BH1 (kstar_1) is formed first                                
             if (BH2_index > BH1_index):
                 XRB_index = BH1_index
@@ -278,12 +244,6 @@ for binary in binary_IDs:
                 donorMass = "mass_1"
                 BHmdot = "deltam_2"
 
-            #if (XRB_index != 1): 
-                #print (bcm)
-                #print (bpp_met)
-                #print (initC_met)
-                #print (sample_initC)
-                #print (sample_initC['bin_num'])
 
             XRB_sep_i = bcm['sep'].iloc[XRB_index]
             
@@ -331,7 +291,7 @@ for binary in binary_IDs:
 
 df_all.to_csv("sampled_HMXB_params.csv", index=False)
 
-print (sample_size)
+print ("Sample Size:", sample_size)
 
 print ("Probabilities:\np(BBH): ", BBH_count/sample_size, "\np(BBHm): ", BBHm_count/sample_size, "\np(BBHm_obs): ", BBHm_obs_count/sample_size)
 print ("\np(HMXB): ", HMXB_count/sample_size, "\np(HMXB_obs): ", HMXB_obs_count/sample_size)
@@ -357,5 +317,3 @@ print ("\np(HMXB | BBHm): ", HMXB_BBHm_prob, "\np(HMXB_obs | BBHm_obs): ", HMXB_
 print ("\np(BBH | HMXB): ", HMXB_BBH/HMXB_count, "\np(BBH | HMXB_obs): ", HMXB_obs_BBH/HMXB_count)
 print ("\np(BBHm | HMXB): ", BBHm_HMXB_prob, "\np(BBHm | HMXB_obs): ", BBHm_HMXB_obs_prob)
 print ("\np(BBHm_obs | HMXB_obs): ", BBHm_obs_HMXB_obs_prob)
-
-#print ("test count: ", BBH_count)
