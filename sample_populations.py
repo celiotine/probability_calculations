@@ -65,20 +65,14 @@ for zf_pick in zf_picks:
 
     ## draw metallicity using the above weights to choose a COSMIC population to draw a system from             
     Z_pick = np.random.choice(mets, p=Z_weights/np.sum(Z_weights))
-    #sampled_Z.append(Z_pick)
 
     pop_idx = np.where(mets==Z_pick)[0][0]
     this_pop = bpp_pops[pop_idx]   ## the population of DCOs from which to draw a system; this is the full bpp file from that COSMIC run
     this_initC = initC_files[pop_idx]
 
     ids = np.unique(this_pop['bin_num'].values)
-    
     this_binary = np.random.choice(ids, replace=True)  ## the sampled binary from all COSMIC populations
     
-    ## exclude disrupted systems from the sample
-    #this_track = this_pop.loc[this_binary]
-    #if this_track['sep'].iloc[-1] == -1: continue
-
     this_pop.loc[this_binary, "metallicity"] = Z_pick
     this_pop.loc[this_binary, "redshift"] = zf_pick
     
