@@ -26,6 +26,7 @@ def P_omega(omega_values):
  
 #----------------------------------------------------------------------------------                                                                  
 ### Monte Carlo sampling for detections above the given SNR threshold                                                          \
+                                                                                                                                
 def calc_detection_prob(m1, m2, z_merge):
 
     ## constants that reflect LIGO design sensitivity                                                                           
@@ -42,7 +43,7 @@ def calc_detection_prob(m1, m2, z_merge):
     rho_0 = 8*(M_chirp*(1+z_merge)/M_8)**(5./6)*d_L8/d_L   ## this is the "typical/optimal" SNR                                 
     if (rho_0 < SNR_thresh): return 0
 
-    ## sample omega according to distribution for omega via inverse CDF method                                            
+    ## sample omega according to distribution for omega via inverse CDF method                                              
     dist_size = 10000
     sample_size = 1000
     P_omega_dist = P_omega(np.linspace(0, 1, dist_size))
@@ -58,7 +59,7 @@ def calc_detection_prob(m1, m2, z_merge):
     return p_det
 
 #-----------------------------------------------------------------------------------# 
-## calculate XRB flux time series information
+
 def calc_flux(current_BH_mass, initial_BH_mass, mdot_BH, d_L):
 
     bolometric_correction = 0.8
@@ -75,28 +76,22 @@ def calc_flux(current_BH_mass, initial_BH_mass, mdot_BH, d_L):
 
 #----------------------------------------------------------------------------------
 
-columns=['bin_num', 'metallicity', 'merger_type', 'bin_state', 'delay_time', 'lookback_time', 'z_f', 'p_det', 'merge_by_z0', 'ZAMS_mass_k1','ZAMS_mass_k2', 'remnant_mass_k1', 'remnant_mass_k2', 'final_k1', 'final_k2', 'BH_mass_i', 'donor_mass_i', 'donor_type', 'XRB_sep_i', 'XRB_porb_i', 'emit11', 'emit13', 'emit15']
+columns=['bin_num', 'metallicity', 'merger_type', 'bin_state', 'delay_time', 'lookback_time', 'z_f', 'p_det', 'p_cosmic', 'merge_by_z0', 'ZAMS_mass_k1','ZAMS_mass_k2', 'remnant_mass_k1', 'remnant_mass_k2', 'final_k1', 'final_k2', 'BH_mass_i', 'donor_mass_i', 'donor_type', 'XRB_sep_i', 'XRB_porb_i', 'emit11', 'emit13', 'emit15', 'emit_tot', 'this_BBH', 'this_BBHm', 'this_HMXB']
 df_all = pd.DataFrame(columns=columns)
 
 sampled_pop = pd.read_csv(sys.argv[1])  ## file of sampled population; file is structured like bpp array, csv format
-sampled_initC = pd.read_csv(sys.argv[2])  ## file of sampled population initial conditions; file is structured like initCond file, csv format 
+sampled_initC = pd.read_csv(sys.argv[2])
 
-binary_IDs = np.unique(sampled_pop['bin_num'].values)
+run_ID = int(sys.argv[3])
+
+binary_IDs = np.unique(sampled_pop['bin_num'].values)[run_ID*500 : run_ID*500+500]
+
 
 dtp = 0.01
 timestep_conditions = [['kstar_1<13', 'kstar_2=14', 'dtp=0.01'], ['kstar_1=14', 'kstar_2<13', 'dtp=0.01']]
 
-## initialize all counting variables (for probabilities) to zero
-BBH_count = 0; BBHm_count = 0; BBHm_obs_count = 0
-HMXB_count = 0; HMXB_obs_count = 0
-HMXB_BBHm = 0; HMXB_obs_BBHm = 0
-HMXB_BBH = 0; HMXB_obs_BBH = 0; HMXB_obs_BBHm_obs = 0
-
-sample_size = 0
-
 #----------------------------------------------------------------------------------
 
-## loop through all binaries in the sample population, calculate XRB and DCO properties
 for binary in binary_IDs:
     
     bpps = sampled_pop.loc[np.where(sampled_pop['bin_num'] == binary)]
@@ -107,20 +102,17 @@ for binary in binary_IDs:
     bin_num = binary
 
     for bpp_met, initC_met  in zip(bpp_mets, initC_mets):
-        
-        sample_size += 1
 
         ## true/false params for the binary
-        this_BBHm_obs = False
-        this_BBHm = False
-        this_BBH = False
+        this_BBH = False; this_BBHm = False
+        this_HMXB = False
 
-        ## get the COSMIC information for this binary
         sample_bpp = bpps.iloc[np.where(bpps['metallicity'] == bpp_met)[0]]
-        sample_initC = initCs.iloc[np.where(initCs['metallicity'] == initC_met)[0]]
-        if (sample_initC.shape[0] > 1): sample_initC = sample_initC.iloc[:-1]
 
-        ## re-evolve this binary to get small-timestep XRB info
+        sample_initC = initCs.iloc[np.where(initCs['metallicity'] == initC_met)[0]]
+        if (sample_initC.shape[0] > 1):
+            sample_initC = sample_initC.iloc[:-1]
+
         bpp, bcm, initC, kick_info = Evolve.evolve(initialbinarytable=sample_initC, timestep_conditions=timestep_conditions)
 
         merger_type = int(bcm['merger_type'].iloc[-1])
@@ -128,6 +120,10 @@ for binary in binary_IDs:
 
         z_f = sample_bpp['redshift'].iloc[-1]
         d_L = (1+z_f)*cosmo.comoving_distance(z_f).to(u.cm).value    ## luminosity distance, in cm for flux calculation
+        
+        ## "cosmological weight" of the system using comoving volume element
+        dVdz = cosmo.differential_comoving_volume(z_f)
+        p_cosmic = dVdz * (1+z_f)**-1  
 
         ## get ZAMS masses for the binary                                                
         ZAMS_mass_k1 = bpp['mass_1'].iloc[0]
@@ -138,9 +134,8 @@ for binary in binary_IDs:
         final_k2 = bpp['kstar_2'].iloc[-1]
         
         ## count alive BBHs
-        if (final_k1 == 14 and final_k2 == 14 and bin_state == 0):
-            BBH_count += 1
-            this_BBH = True
+        if (final_k1 == 14 and final_k2 == 14 and bin_state == 0): this_BBH = True
+
         #----------------------------------------------------------------------------------
 
         try: merge_index = np.where(bpp['evol_type']==6)[0][0]
@@ -151,10 +146,8 @@ for binary in binary_IDs:
         ## alive/disrupted systems have merge_index = -1                                             
         if (merger_type != -1):
 
-            ## count all merged BBHs in COSMIC
-            if (merger_type == 1414):
-                BBH_count += 1
-                this_BBH = True
+            ## check if BBH in COSMIC
+            if (merger_type == 1414): this_BBH = True
 
             remnant_mass_k1 = bpp['mass0_1'].iloc[merge_index]
             remnant_mass_k2 = bpp['mass0_2'].iloc[merge_index]
@@ -165,19 +158,12 @@ for binary in binary_IDs:
             lookback_time = cosmo.lookback_time(z_f).to(u.Myr).value
 
             if (delay_time <= lookback_time):
-                merge_by_z0 = 1
 
+                merge_by_z0 = True
                 p_det = calc_detection_prob(remnant_mass_k1, remnant_mass_k2, z_merge) ## detection probability for this merger
+                if (this_BBH): this_BBHm = True
 
-                if (p_det > 0):
-                    this_BBHm_obs = True
-                    
-                if (merger_type == 1414):
-                    this_BBHm = True
-                    BBHm_count += 1
-                    BBHm_obs_count += p_det
-
-            else: merge_by_z0 = 0
+            else: merge_by_z0 = False
 
             remnant_mass_k1 = bpp['mass0_1'].iloc[merge_index]
             remnant_mass_k2 = bpp['mass0_2'].iloc[merge_index]
@@ -185,15 +171,16 @@ for binary in binary_IDs:
         ## CASE 2: system does not merge           
         ## set params to very small positive value for plotting purposes
         else:
-            delay_time = 1e-8     
-            lookback_time = 1e-8
-            merge_by_z0 = 0
+            delay_time = -1     
+            lookback_time = -1
+            merge_by_z0 = False
             remnant_mass_k1 = bpp['mass_1'].iloc[-1]
             remnant_mass_k2 = bpp['mass_2'].iloc[-1]
-            p_det = 0
+            p_det = -1
+
         #----------------------------------------------------------------------------------
 
-        ## CASE A: system doesn't undergo an HMXB phae                                            
+        ## CASE A: system doesn't undergo an HMXB phase                                            
         ## if so, there are only 2 rows in bcm frame                      
         if (bcm.shape[0] < 3):
             BH_mass_i = -1
@@ -201,19 +188,20 @@ for binary in binary_IDs:
             donor_type = -1
             XRB_sep_i = -1
             XRB_porb_i = -1
-            emit11 = 0
-            emit13 = 0
-            emit15 = 0
+            emit11 = -1
+            emit13 = -1
+            emit15 = -1
+            emit_tot = -1
 
-        ### CASE B: system undeoges an HMXB phase                                      
+        ### CASE B: system undeoges an HMXB phase (unless disrupted)                                      
         else:
+
             ## get bcm index where each BH is formed                                   
             try: BH1_index = np.where(bcm['kstar_1'] == 14)[0][0]
             except: BH1_index = np.infty
 
             try: BH2_index = np.where(bcm['kstar_2'] == 14)[0][0]
             except: BH2_index = np.infty
-
 
             ## CASE Bi: BH1 (kstar_1) is formed first                                
             if (BH2_index > BH1_index):
@@ -234,10 +222,9 @@ for binary in binary_IDs:
                 donorMass = "mass_1"
                 BHmdot = "deltam_2"
 
-
             XRB_sep_i = bcm['sep'].iloc[XRB_index]
             
-            ## check if system is disrupted
+            ## check if system is disrupted (NOT considered an HMXB)
             if (XRB_sep_i == -1):
                 BH_mass_i = -1
                 donor_mass_i = -1
@@ -247,13 +234,11 @@ for binary in binary_IDs:
                 emit11 = -1
                 emit13 = -1
                 emit15 = -1
+                emit_tot = -1
             
             else:
 
-                HMXB_count += 1
-                if (this_BBH): HMXB_BBH += 1
-                if (this_BBHm): HMXB_BBHm += 1
-
+                this_HMXB = True
 
                 ## get binary params at beginning of XRB phase                                 
                 donor_mass_i = bcm[donorMass].iloc[XRB_index]
@@ -268,42 +253,14 @@ for binary in binary_IDs:
                 emit13 = len(np.where(flux > 1e-13)[0])*dtp
                 emit11 = len(np.where(flux > 1e-11)[0])*dtp
 
-                if (emit15 > 0): 
-                    HMXB_obs_count += 1
-                    if (this_BBH): HMXB_obs_BBH += 1
-                    if (this_BBHm): HMXB_obs_BBHm += 1
-                    if (this_BBHm_obs): HMXB_obs_BBHm_obs += p_det
+                ## total duration of HMXB phase
+                emit_tot = bcm['tphys'].iloc[-2] - bcm['tphys'].iloc[XRB_index]
+
             #----------------------------------------------------------------------------------
 
-        df = pd.DataFrame([[bin_num, bpp_met, merger_type, bin_state, delay_time, lookback_time, z_f, p_det, merge_by_z0, ZAMS_mass_k1, ZAMS_mass_k2, remnant_mass_k1, remnant_mass_k2, final_k1, final_k2, BH_mass_i, donor_mass_i, donor_type, XRB_sep_i, XRB_porb_i, emit11, emit13, emit15]], columns=columns)
+        df = pd.DataFrame([[bin_num, bpp_met, merger_type, bin_state, delay_time, lookback_time, z_f, p_det, p_cosmic, merge_by_z0, ZAMS_mass_k1, ZAMS_mass_k2, remnant_mass_k1, remnant_mass_k2, final_k1, final_k2, BH_mass_i, donor_mass_i, donor_type, XRB_sep_i, XRB_porb_i, emit11, emit13, emit15, emit_tot, this_BBH, this_BBHm, this_HMXB]], columns=columns)
 
         df_all = df_all.append(df, sort=False, ignore_index=True)
 
-df_all.to_csv("sampled_HMXB_params.csv", index=False)
+df_all.to_csv("HMXB_output/sampled_HMXB_params_" + str(run_ID) + ".csv", index=False)
 
-print ("Sample Size:", sample_size)
-
-print ("Probabilities:\np(BBH): ", BBH_count/sample_size, "\np(BBHm): ", BBHm_count/sample_size, "\np(BBHm_obs): ", BBHm_obs_count/sample_size)
-print ("\np(HMXB): ", HMXB_count/sample_size, "\np(HMXB_obs): ", HMXB_obs_count/sample_size)
-
-if (BBHm_count == 0): HMXB_BBHm_prob = 0
-else: HMXB_BBHm_prob = HMXB_BBHm/BBHm_count
-
-if (BBHm_obs_count == 0): HMXB_obs_BBHm_obs_prob = 0
-else: HMXB_obs_BBHm_obs_prob = HMXB_obs_BBHm_obs/BBHm_obs_count
-
-if (HMXB_count == 0): BBHm_HMXB_prob = 0
-else: BBHm_HMXB_prob = HMXB_BBHm/HMXB_count
-
-if (HMXB_obs_count == 0): 
-    BBHm_HMXB_obs_prob = 0
-    BBHm_obs_HMXB_obs_prob = 0
-else: 
-    BBHm_HMXB_obs_prob = HMXB_obs_BBHm/HMXB_obs_count
-    BBHm_obs_HMXB_obs_prob = HMXB_obs_BBHm_obs/HMXB_obs_count
-
-
-print ("\np(HMXB | BBHm): ", HMXB_BBHm_prob, "\np(HMXB_obs | BBHm_obs): ", HMXB_obs_BBHm_obs_prob) 
-print ("\np(BBH | HMXB): ", HMXB_BBH/HMXB_count, "\np(BBH | HMXB_obs): ", HMXB_obs_BBH/HMXB_count)
-print ("\np(BBHm | HMXB): ", BBHm_HMXB_prob, "\np(BBHm | HMXB_obs): ", BBHm_HMXB_obs_prob)
-print ("\np(BBHm_obs | HMXB_obs): ", BBHm_obs_HMXB_obs_prob)
